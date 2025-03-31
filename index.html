@@ -14,8 +14,8 @@
             navigator.geolocation.getCurrentPosition(position => {
                 let userLat = position.coords.latitude;
                 let userLon = position.coords.longitude;
-                let targetLat = 10.9392006; // Example GPS latitude (change to your location)
-                let targetLon = 76.7431360; // Example GPS longitude
+                let targetLat = 10.9392894; // Example GPS latitude (change to your location)
+                let targetLon = 76.7430817; // Example GPS longitude
                 let distance = getDistance(userLat, userLon, targetLat, targetLon);
                 
                 let textEntity = document.getElementById('floating-text');
