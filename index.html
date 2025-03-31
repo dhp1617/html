@@ -3,24 +3,31 @@
 <head>
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/jeromeetienne/AR.js@1.7.2/aframe/build/aframe-ar.min.js"></script>
-    <script>
+    
+<script>
     navigator.mediaDevices.getUserMedia({ video: true })
     .then((stream) => { console.log("Camera access granted"); })
     .catch((err) => { console.error("Camera access denied:", err); });
 </script>
-
     <script>
         function updateVisibility() {
             navigator.geolocation.getCurrentPosition(position => {
                 let userLat = position.coords.latitude;
                 let userLon = position.coords.longitude;
+                let userAlt = position.coords.altitude; // Get altitude
                 let targetLat = 10.9392894; // Example GPS latitude (change to your location)
-                let targetLon = 76.7430817; // Example GPS longitude
+                let targetLon = 76.7430817;  
+                let minAlt = 4; // Min height for 2nd floor (~4m)
+                let maxAlt = 6; // Max height for 2nd floor (~6m)
+
                 let distance = getDistance(userLat, userLon, targetLat, targetLon);
-                
                 let textEntity = document.getElementById('floating-text');
-                textEntity.setAttribute('visible', distance < 10); // Show if within 10 meters
-            });
+
+                // Show only if within 10m of target and altitude is 2nd-floor range
+                textEntity.setAttribute('visible', distance < 10 && userAlt >= minAlt && userAlt <= maxAlt);
+            }, error => {
+                console.error("Error getting location:", error);
+            }, { enableHighAccuracy: true });
         }
 
         function getDistance(lat1, lon1, lat2, lon2) {
@@ -34,14 +41,14 @@
             return R * c;
         }
 
-        setInterval(updateVisibility, 3000); // Check visibility every 3 seconds
+        setInterval(updateVisibility, 3000); // Update visibility every 3 seconds
     </script>
 </head>
 <body style="margin: 0; overflow: hidden;">
     <a-scene embedded arjs>
         <a-entity camera></a-entity>
 
-        <!-- Floating 3D Text -->
+        <!-- Floating 3D Text (Appears Only at 2nd Floor) -->
         <a-text id="floating-text" value="Welcome to AR!" position="0 2 -5" rotation="0 180 0" scale="3 3 3" color="red"></a-text>
         
         <!-- Occlusion Object (Invisible Box Representing a Building) -->
