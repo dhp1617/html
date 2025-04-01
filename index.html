@@ -2,14 +2,24 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>AR Tour Guide with Permission Handling</title>
+    <title>GPS AR Without Geospatial APIs</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <style>
-        body { 
-            margin: 0; 
+        body {
+            margin: 0;
             overflow: hidden;
             font-family: Arial;
+        }
+        #status-panel {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 10000;
+            max-width: 300px;
         }
         #permission-overlay {
             position: fixed;
@@ -23,7 +33,7 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 10000;
+            z-index: 10001;
             text-align: center;
             padding: 20px;
         }
@@ -37,134 +47,255 @@
             border-radius: 5px;
             cursor: pointer;
         }
-        #ar-status {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            z-index: 9999;
+        .distance-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+            margin: 5px 0;
         }
     </style>
 </head>
 <body>
-    <!-- Permission Request Overlay -->
+    <!-- Permission Overlay -->
     <div id="permission-overlay">
         <h2>AR Experience Requires Permissions</h2>
-        <p>Please enable camera and location access to continue</p>
-        <button id="request-permissions">Grant Permissions</button>
+        <p>This experience needs:</p>
+        <ul style="text-align: left; display: inline-block;">
+            <li>Camera access</li>
+            <li>Location services</li>
+            <li>Device orientation</li>
+        </ul>
+        <button id="request-permissions">Enable AR Mode</button>
         <div id="permission-status" style="margin-top: 20px;"></div>
     </div>
 
-    <!-- AR Scene (initially hidden) -->
-    <a-scene 
-        vr-mode-ui="enabled: false"
-        embedded
-        arjs="sourceType: webcam; debugUIEnabled: false;"
-        style="display: none;"
-    >
-        <a-camera gps-camera rotation-reader></a-camera>
-        <!-- Your AR content here -->
-        <a-entity gps-entity-place="latitude: 10.939230; longitude: 76.743130">
-            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
-            <a-text value="Landmark" color="white" position="0 60 0" scale="25 25 25"></a-text>
+    <!-- AR Scene -->
+    <a-scene embedded vr-mode-ui="enabled: false" style="display: none;">
+        <!-- Camera will be controlled by our GPS system -->
+        <a-entity id="ar-camera" camera look-controls="enabled: false"></a-entity>
+        
+        <!-- AR Content Container -->
+        <a-entity id="ar-content">
+            <!-- Example: Large red cube at target location -->
+            <a-entity id="target-object" visible="false">
+                <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+                <a-text value="Landmark" color="white" position="0 60 0" scale="25 25 25"></a-text>
+            </a-entity>
         </a-entity>
     </a-scene>
 
-    <!-- Status Display -->
-    <div id="ar-status" style="display: none;">Initializing AR...</div>
+    <!-- Status Panel -->
+    <div id="status-panel" style="display: none;">
+        <h3 style="margin-top: 0;">AR Navigation</h3>
+        <div class="distance-value" id="distance-display">-- m</div>
+        <div>from target location</div>
+        <hr>
+        <div>Your position: <span id="user-coords">Acquiring...</span></div>
+        <div>Target position: <span id="target-coords">10.939230, 76.743130</span></div>
+        <div>Accuracy: ±<span id="gps-accuracy">--</span> meters</div>
+        <div>Heading: <span id="heading">--</span>°</div>
+    </div>
 
     <script>
+        // Configuration
+        const TARGET_LOCATION = {
+            lat: 10.939230, 
+            lon: 76.743130
+        };
+        
         // DOM Elements
         const permissionOverlay = document.getElementById('permission-overlay');
         const requestBtn = document.getElementById('request-permissions');
         const permissionStatus = document.getElementById('permission-status');
         const arScene = document.querySelector('a-scene');
-        const arStatus = document.getElementById('ar-status');
+        const statusPanel = document.getElementById('status-panel');
+        const targetObject = document.getElementById('target-object');
 
-        // Check permissions on load
-        document.addEventListener('DOMContentLoaded', checkPermissions);
+        // State variables
+        let currentPosition = null;
+        let currentHeading = null;
+        let watchId = null;
+        let orientationId = null;
 
-        // Button to request permissions
-        requestBtn.addEventListener('click', async () => {
-            permissionStatus.innerHTML = "Checking permissions...";
-            await requestPermissions();
-        });
-
-        // Permission check function
-        async function checkPermissions() {
-            try {
-                // Check camera permissions
-                const cameraPerm = await navigator.permissions.query({ name: 'camera' });
-                const locationPerm = await navigator.permissions.query({ name: 'geolocation' });
-                
-                if (cameraPerm.state === 'granted' && locationPerm.state === 'granted') {
-                    startARExperience();
-                } else {
-                    permissionStatus.innerHTML = "Permissions not yet granted";
-                }
-            } catch (e) {
-                // Fallback for browsers that don't support permissions API
-                permissionStatus.innerHTML = "Please grant permissions when prompted";
+        // Check for required APIs
+        function checkCompatibility() {
+            if (!navigator.geolocation) {
+                showError("Geolocation is not supported by your browser");
+                return false;
             }
+            if (!window.DeviceOrientationEvent) {
+                showError("Device orientation not supported");
+                return false;
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showError("Camera access not supported");
+                return false;
+            }
+            return true;
         }
 
-        // Permission request function
+        // Request all required permissions
         async function requestPermissions() {
+            if (!checkCompatibility()) return;
+            
             try {
-                // Request camera access
+                permissionStatus.innerHTML = "Requesting camera access...";
+                
+                // Request camera
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: {
-                        facingMode: { ideal: 'environment' } // Prefer rear camera
+                    video: { 
+                        facingMode: { ideal: 'environment' } 
                     } 
                 });
-                
-                // Stop the stream immediately (we just needed permission)
                 stream.getTracks().forEach(track => track.stop());
                 
-                // Request location access
-                const position = await new Promise((resolve, reject) => {
+                // Request location
+                permissionStatus.innerHTML = "Requesting location access...";
+                currentPosition = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
-                        timeout: 5000
+                        timeout: 10000
                     });
                 });
                 
+                // Start orientation tracking
+                permissionStatus.innerHTML = "Requesting device orientation...";
+                if (window.DeviceOrientationEvent) {
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        // iOS 13+ special handling
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission !== 'granted') {
+                            throw new Error("Orientation permission denied");
+                        }
+                    }
+                    window.addEventListener('deviceorientation', handleOrientation);
+                }
+                
                 startARExperience();
             } catch (error) {
-                permissionStatus.innerHTML = `Error: ${error.message}`;
-                if (error.name === 'NotAllowedError') {
-                    permissionStatus.innerHTML += "<br>Please enable permissions in your browser settings";
-                }
+                showError(error.message);
                 console.error("Permission error:", error);
             }
         }
 
-        // Start AR once permissions are granted
+        // Handle device orientation changes
+        function handleOrientation(event) {
+            if (event.alpha !== null) {
+                currentHeading = event.alpha; // Compass heading (0-360)
+                document.getElementById('heading').textContent = Math.round(currentHeading);
+                
+                // Rotate camera based on device orientation
+                const camera = document.getElementById('ar-camera');
+                if (camera) {
+                    camera.setAttribute('rotation', `0 ${-currentHeading} 0`);
+                }
+            }
+        }
+
+        // Start the AR experience
         function startARExperience() {
             permissionOverlay.style.display = 'none';
             arScene.style.display = 'block';
-            arStatus.style.display = 'block';
+            statusPanel.style.display = 'block';
             
-            // Add event listeners for AR scene
-            arScene.addEventListener('arjs-video-loaded', () => {
-                arStatus.innerHTML = "AR camera ready!";
-            });
-            
-            arScene.addEventListener('arjs-gps-camera-update-position', (e) => {
-                const pos = e.detail.position;
-                arStatus.innerHTML = `
-                    GPS Position: ${pos.latitude.toFixed(6)}, ${pos.longitude.toFixed(6)}<br>
-                    Accuracy: ±${pos.accuracy.toFixed(1)} meters
-                `;
-            });
+            // Start watching position
+            watchId = navigator.geolocation.watchPosition(
+                position => {
+                    currentPosition = position;
+                    updateARContent();
+                },
+                error => {
+                    document.getElementById('gps-accuracy').textContent = "Error";
+                    console.error("GPS error:", error);
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 3000,
+                    timeout: 5000
+                }
+            );
         }
 
-        // Fallback for browsers without permissions API
-        if (!navigator.permissions) {
-            permissionStatus.innerHTML = "This browser doesn't support permission checks.<br>Please grant permissions when prompted.";
+        // Update AR content based on position
+        function updateARContent() {
+            if (!currentPosition || !currentHeading) return;
+            
+            const userLat = currentPosition.coords.latitude;
+            const userLon = currentPosition.coords.longitude;
+            const accuracy = currentPosition.coords.accuracy;
+            
+            // Update UI
+            document.getElementById('user-coords').textContent = 
+                `${userLat.toFixed(6)}, ${userLon.toFixed(6)}`;
+            document.getElementById('gps-accuracy').textContent = Math.round(accuracy);
+            
+            // Calculate distance to target
+            const distance = calculateDistance(
+                userLat, userLon,
+                TARGET_LOCATION.lat, TARGET_LOCATION.lon
+            );
+            
+            // Update distance display
+            const distanceElement = document.getElementById('distance-display');
+            distanceElement.textContent = distance > 1000 ? 
+                `${(distance/1000).toFixed(1)} km` : `${Math.round(distance)} m`;
+            
+            // Color code by distance
+            if (distance < 50) {
+                distanceElement.style.color = '#4CAF50'; // Green
+            } else if (distance < 200) {
+                distanceElement.style.color = '#FFC107'; // Yellow
+            } else {
+                distanceElement.style.color = '#F44336'; // Red
+            }
+            
+            // Show/hide AR object based on distance
+            if (distance < 500) { // Visible within 500m
+                targetObject.setAttribute('visible', 'true');
+                
+                // Calculate relative position (simplified approach)
+                const latDiff = TARGET_LOCATION.lat - userLat;
+                const lonDiff = TARGET_LOCATION.lon - userLon;
+                
+                // Convert to meters (approximate)
+                const x = lonDiff * 111320 * Math.cos(userLat * Math.PI/180);
+                const z = -latDiff * 111320; // Negative because in AR z-axis is opposite
+                
+                // Position the object
+                targetObject.setAttribute('position', `${x} 25 ${z}`);
+            } else {
+                targetObject.setAttribute('visible', 'false');
+            }
+        }
+
+        // Calculate distance between two coordinates (Haversine formula)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c;
+        }
+
+        // Show error message
+        function showError(message) {
+            permissionStatus.innerHTML = `Error: ${message}<br>Please refresh and try again.`;
+            requestBtn.style.display = 'none';
+        }
+
+        // Set up permission button
+        requestBtn.addEventListener('click', requestPermissions);
+
+        // Initial compatibility check
+        if (!checkCompatibility()) {
+            showError("Your device doesn't support all required features");
         }
     </script>
 </body>
