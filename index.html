@@ -2,137 +2,136 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Giant AR Object Visible From Far</title>
-  <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
+  <title>AR Tour Guide - Guaranteed Visibility</title>
+  <!-- Load libraries from reliable CDN -->
+  <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1.2.0/dist/aframe-master.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
   <style>
     body { margin: 0; overflow: hidden; }
-    #status {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
+    #ar-status {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0,0,0,0.8);
       color: white;
       padding: 10px;
-      z-index: 10000;
       font-family: Arial;
+      z-index: 10000;
     }
   </style>
 </head>
 <body>
-  <div id="status">Initializing AR experience...</div>
-  
+  <div id="ar-status">Initializing AR experience...</div>
+
+  <!-- AR Scene with Marker Fallback -->
   <a-scene 
-    vr-mode-ui="enabled: false" 
-    embedded 
-    arjs="sourceType: webcam; debugUIEnabled: false;"
+    vr-mode-ui="enabled: false"
+    embedded
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: true;"
     renderer="logarithmicDepthBuffer: true;"
   >
-    <!-- Camera setup -->
-    <a-entity camera></a-entity>
+    <!-- Camera Setup -->
+    <a-camera gps-camera rotation-reader></a-camera>
 
-    <!-- GIANT VISIBLE OBJECT -->
-    <a-entity
-      id="giant-object"
+    <!-- ===== PRIMARY LANDMARK (GPS) ===== -->
+    <a-entity 
+      id="main-landmark"
       gps-entity-place="latitude: 10.939230; longitude: 76.743130"
+      visible="true"
     >
-      <!-- Massive pyramid (500m base, 300m height) -->
+      <!-- Giant 3D Arrow (200m tall) -->
       <a-cone 
-        color="#FF0000" 
-        radius-bottom="250" 
-        radius-top="10" 
-        height="300"
-        position="0 150 0"
-        material="transparent: true; opacity: 0.7;"
+        color="#FF3355" 
+        radius-bottom="100" 
+        radius-top="5" 
+        height="200"
+        position="0 100 0"
+        material="transparent: true; opacity: 0.9"
       ></a-cone>
       
-      <!-- Glowing sphere at top -->
-      <a-sphere
-        color="yellow"
-        radius="50"
-        position="0 300 0"
-        material="shader: flat;"
-        light="type: point; intensity: 1; color: yellow"
-      ></a-sphere>
+      <!-- Pulsing Light Beacon -->
+      <a-light 
+        type="point" 
+        color="yellow" 
+        intensity="2" 
+        position="0 200 0"
+        animation="property: light.intensity; to: 5; dur: 1000; loop: true; dir: alternate"
+      ></a-light>
       
-      <!-- Floating label -->
+      <!-- Floating Label -->
       <a-text 
         value="TOUR POINT" 
-        color="#FFFFFF" 
-        position="0 400 0" 
-        scale="150 150 150"
+        color="white" 
+        position="0 250 0" 
+        scale="80 80 80"
         align="center"
       ></a-text>
     </a-entity>
+
+    <!-- ===== FALLBACK MARKER (If GPS fails) ===== -->
+    <a-marker preset="hiro">
+      <a-box position="0 0.5 0" color="blue" scale="1 1 1"></a-box>
+      <a-text value="GPS Not Working - Use Marker" position="0 1.5 0" color="black"></a-text>
+    </a-marker>
   </a-scene>
 
   <script>
-    const statusElement = document.getElementById('status');
-    const giantObject = document.getElementById('giant-object');
-    let userPosition = null;
+    const statusEl = document.getElementById('ar-status');
+    const landmark = document.getElementById('main-landmark');
 
-    // Check if required libraries loaded
+    // ===== 1. Verify AR.js Loaded =====
     if (!window.ARjs || !window.AFRAME) {
-      statusElement.innerHTML = "Error: AR libraries failed to load. Refresh page.";
+      statusEl.innerHTML = "CRITICAL: AR libraries failed to load. Refresh page.";
+      throw new Error("AR libraries missing");
     }
 
-    // Configure AR scene events
+    // ===== 2. Camera Ready Check =====
     const scene = document.querySelector('a-scene');
-    scene.addEventListener('arjs-ftor-ready', () => {
-      statusElement.innerHTML += "<br>AR camera ready!";
+    scene.addEventListener('arjs-video-loaded', () => {
+      statusEl.innerHTML += "<br>✅ Camera feed active";
     });
 
-    // Continuous GPS tracking
+    // ===== 3. GPS Tracking =====
     if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(
-        (position) => {
-          userPosition = position;
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
-          const targetLat = 10.939230;
-          const targetLng = 76.743130;
+      statusEl.innerHTML += "<br>⌛ Acquiring GPS signal...";
+      
+      const gpsOptions = {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 15000
+      };
+
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = pos.coords.accuracy;
           
-          const distance = calculateDistance(userLat, userLng, targetLat, targetLng);
-          statusElement.innerHTML = `
-            <strong>Giant AR Object</strong><br>
-            Your position: ${userLat.toFixed(6)}, ${userLng.toFixed(6)}<br>
-            Distance to target: ${(distance/1000).toFixed(2)} km<br>
-            GPS accuracy: ±${position.coords.accuracy.toFixed(1)} meters<br>
-            <small>Look around - object should be visible from several kilometers away</small>
+          statusEl.innerHTML = `
+            <strong>AR LANDMARK ACTIVE</strong><br>
+            📍 Your location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+            🎯 Target: 10.939230, 76.743130<br>
+            📏 GPS Accuracy: ±${acc.toFixed(1)} meters<br>
+            <small>Look around - giant red arrow should be visible</small>
           `;
+
+          // Force object visibility
+          landmark.setAttribute('visible', 'true');
+        },
+        (err) => {
+          statusEl.innerHTML = `⚠️ GPS Error: ${err.message}<br>
+            <strong>Try scanning this Hiro marker instead:</strong>
+            <img src="https://arjs-cdn.glitch.me/static/images/hiro.png" width="100">`;
           
-          // Scale object based on distance (makes it even more visible)
-          const scaleFactor = Math.min(1, 10000/distance);
-          giantObject.setAttribute('scale', `${scaleFactor} ${scaleFactor} ${scaleFactor}`);
+          // Show marker-based content if GPS fails
+          document.querySelector('a-marker').setAttribute('visible', 'true');
         },
-        (error) => {
-          statusElement.innerHTML = `GPS Error: ${error.message}`;
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 10000
-        }
+        gpsOptions
       );
     } else {
-      statusElement.innerHTML = "Error: Geolocation not supported by your device";
-    }
-
-    // Distance calculation (Haversine formula)
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-      const R = 6371000; // Earth radius in meters
-      const φ1 = lat1 * Math.PI / 180;
-      const φ2 = lat2 * Math.PI / 180;
-      const Δφ = (lat2 - lat1) * Math.PI / 180;
-      const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-      return R * c;
+      statusEl.innerHTML = "⚠️ Geolocation not supported - Using marker fallback";
+      document.querySelector('a-marker').setAttribute('visible', 'true');
     }
   </script>
 </body>
