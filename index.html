@@ -2,266 +2,169 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Large-Scale AR Car Display</title>
-    <!-- WebCAST Library -->
-    <script src="https://webarrock.web.app/dist/webarock.min.js"></script>
-    <!-- A-Frame with GLTF Loader -->
+    <title>AR Tour Guide with Permission Handling</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@6.1.1/dist/aframe-extras.loaders.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <style>
         body { 
             margin: 0; 
             overflow: hidden;
             font-family: Arial;
         }
-        #distance-panel {
-            position: fixed;
-            right: 10px;
-            top: 10px;
-            width: 250px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            z-index: 10000;
-        }
-        #loading-screen {
+        #permission-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: #000;
-            z-index: 9999;
+            background: rgba(0,0,0,0.9);
+            color: white;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            color: white;
+            z-index: 10000;
+            text-align: center;
+            padding: 20px;
         }
-        #loading-bar-container {
-            width: 80%;
-            max-width: 300px;
-            height: 20px;
-            background: rgba(255,255,255,0.2);
-            margin-top: 20px;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        #loading-progress {
-            height: 100%;
-            width: 0%;
+        #permission-overlay button {
             background: #4CAF50;
-            transition: width 0.3s;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
         }
-        .distance-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #4CAF50;
-            margin: 5px 0;
-        }
-        .coordinates {
-            font-family: monospace;
-            font-size: 12px;
-            opacity: 0.8;
+        #ar-status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 9999;
         }
     </style>
 </head>
 <body>
-    <!-- Loading Screen -->
-    <div id="loading-screen">
-        <h2>Loading AR Experience</h2>
-        <p>Please wait while we load the 3D model...</p>
-        <div id="loading-bar-container">
-            <div id="loading-progress"></div>
-        </div>
+    <!-- Permission Request Overlay -->
+    <div id="permission-overlay">
+        <h2>AR Experience Requires Permissions</h2>
+        <p>Please enable camera and location access to continue</p>
+        <button id="request-permissions">Grant Permissions</button>
+        <div id="permission-status" style="margin-top: 20px;"></div>
     </div>
 
-    <!-- Distance Information Panel -->
-    <div id="distance-panel">
-        <h3>NISSAN SKYLINE R35</h3>
-        <div class="distance-value" id="distance-display">-- m</div>
-        <div>from your location</div>
-        <hr>
-        <div>Your position: <span id="user-coords" class="coordinates">Acquiring...</span></div>
-        <div>Target position: <span id="target-coords" class="coordinates">10.939230, 76.743130</span></div>
-        <div>GPS accuracy: <span id="gps-accuracy">--</span> meters</div>
-    </div>
-
-    <!-- AR Scene -->
-    <a-scene embedded renderer="logarithmicDepthBuffer: true; precision: high">
-        <a-camera id="ar-camera"></a-camera>
-        <a-entity id="ar-content"></a-entity>
-        
-        <!-- Enhanced Lighting -->
-        <a-entity light="type: ambient; color: #888; intensity: 0.8"></a-entity>
-        <a-entity light="type: directional; color: #FFF; intensity: 1.2" position="-0.5 1 1"></a-entity>
+    <!-- AR Scene (initially hidden) -->
+    <a-scene 
+        vr-mode-ui="enabled: false"
+        embedded
+        arjs="sourceType: webcam; debugUIEnabled: false;"
+        style="display: none;"
+    >
+        <a-camera gps-camera rotation-reader></a-camera>
+        <!-- Your AR content here -->
+        <a-entity gps-entity-place="latitude: 10.939230; longitude: 76.743130">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Landmark" color="white" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
     </a-scene>
 
+    <!-- Status Display -->
+    <div id="ar-status" style="display: none;">Initializing AR...</div>
+
     <script>
-        // Configuration
-        const TARGET_LOCATION = {
-            lat: 10.939230, 
-            lon: 76.743130
-        };
-        const MODEL_URL = 'https://dhp1617.github.io/html/models/nissan_skyline_r35_gtr_nismo._free/scene.gltf';
-        const MODEL_SCALE = 15; // Makes model visible from far away
-        
-        // Initialize WebCAST
-        WEBARROCK.init({
-            onReady: function() {
-                document.getElementById('loading-screen').innerHTML += "<p>AR system ready</p>";
-                placeARContent();
-            },
-            onError: function(error) {
-                document.getElementById('loading-screen').innerHTML = 
-                    `<h2>Error</h2><p>${error}</p><button onclick="location.reload()">Retry</button>`;
-            },
-            gpsOptions: {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 30000
-            }
+        // DOM Elements
+        const permissionOverlay = document.getElementById('permission-overlay');
+        const requestBtn = document.getElementById('request-permissions');
+        const permissionStatus = document.getElementById('permission-status');
+        const arScene = document.querySelector('a-scene');
+        const arStatus = document.getElementById('ar-status');
+
+        // Check permissions on load
+        document.addEventListener('DOMContentLoaded', checkPermissions);
+
+        // Button to request permissions
+        requestBtn.addEventListener('click', async () => {
+            permissionStatus.innerHTML = "Checking permissions...";
+            await requestPermissions();
         });
 
-        function placeARContent() {
-            // Create AR object with enhanced visibility
-            WEBARROCK.addARObject({
-                gps: TARGET_LOCATION,
-                html: `
-                    <a-entity id="car-model"
-                            gltf-model="url(${MODEL_URL})"
-                            scale="${MODEL_SCALE} ${MODEL_SCALE} ${MODEL_SCALE}"
-                            position="0 ${MODEL_SCALE/2} 0"
-                            rotation="0 180 0"
-                            shadow="cast: true; receive: true">
-                        <!-- Pulsing animation for better visibility -->
-                        <a-animation attribute="scale"
-                                    dur="2000"
-                                    from="${MODEL_SCALE*0.95} ${MODEL_SCALE*0.95} ${MODEL_SCALE*0.95}"
-                                    to="${MODEL_SCALE} ${MODEL_SCALE} ${MODEL_SCALE}"
-                                    repeat="indefinite"
-                                    direction="alternate"
-                                    easing="ease-in-out"></a-animation>
-                        <!-- Slow rotation -->
-                        <a-animation attribute="rotation"
-                                    dur="60000"
-                                    to="0 540 0"
-                                    repeat="indefinite"
-                                    easing="linear"></a-animation>
-                    </a-entity>
-                `,
-                onClick: function() {
-                    alert("Nissan Skyline R35 GTR Nismo\nCoordinates: " + 
-                         TARGET_LOCATION.lat + ", " + TARGET_LOCATION.lon);
-                }
-            });
-
-            // Model loading progress
-            const model = document.querySelector('#car-model');
-            if (model) {
-                model.addEventListener('model-loading', function(evt) {
-                    const progress = evt.detail.totalProgress;
-                    document.getElementById('loading-progress').style.width = `${progress}%`;
-                });
-
-                model.addEventListener('model-loaded', function() {
-                    document.getElementById('loading-screen').style.display = 'none';
-                });
-
-                model.addEventListener('model-error', function() {
-                    loadFallbackModel();
-                });
-            }
-        }
-
-        function loadFallbackModel() {
-            WEBARROCK.updateARObject({
-                html: `
-                    <a-entity position="0 ${MODEL_SCALE/2} 0">
-                        <!-- Large red car placeholder -->
-                        <a-box color="#C00" 
-                               depth="${MODEL_SCALE}" 
-                               height="${MODEL_SCALE/3}" 
-                               width="${MODEL_SCALE*1.5}"
-                               shadow="cast: true; receive: true">
-                        </a-box>
-                        <!-- Wheels -->
-                        <a-cylinder color="#333" 
-                                   radius="${MODEL_SCALE/4}" 
-                                   height="${MODEL_SCALE/8}" 
-                                   position="-${MODEL_SCALE/1.5} 0 0"
-                                   shadow="cast: true">
-                        </a-cylinder>
-                        <a-cylinder color="#333" 
-                                   radius="${MODEL_SCALE/4}" 
-                                   height="${MODEL_SCALE/8}" 
-                                   position="${MODEL_SCALE/1.5} 0 0"
-                                   shadow="cast: true">
-                        </a-cylinder>
-                        <!-- Label -->
-                        <a-text value="NISSAN GTR" 
-                               color="white" 
-                               position="0 ${MODEL_SCALE/2.5} 0" 
-                               width="${MODEL_SCALE*2}"
-                               align="center"
-                               shadow="color: #000; opacity: 0.8">
-                        </a-text>
-                    </a-entity>
-                `
-            });
-            document.getElementById('loading-screen').style.display = 'none';
-        }
-
-        // Real-time distance updates
-        setInterval(function() {
-            const pos = WEBARROCK.getPosition();
-            if (pos) {
-                const distance = calculateDistance(
-                    pos.latitude, pos.longitude, 
-                    TARGET_LOCATION.lat, TARGET_LOCATION.lon
-                );
+        // Permission check function
+        async function checkPermissions() {
+            try {
+                // Check camera permissions
+                const cameraPerm = await navigator.permissions.query({ name: 'camera' });
+                const locationPerm = await navigator.permissions.query({ name: 'geolocation' });
                 
-                // Update distance display
-                document.getElementById('distance-display').textContent = 
-                    distance > 1000 ? 
-                    `${(distance/1000).toFixed(1)} km` : 
-                    `${Math.round(distance)} m`;
-                
-                // Update user coordinates
-                document.getElementById('user-coords').textContent = 
-                    `${pos.latitude.toFixed(6)}, ${pos.longitude.toFixed(6)}`;
-                
-                // Update GPS accuracy
-                document.getElementById('gps-accuracy').textContent = 
-                    Math.round(pos.accuracy);
-                
-                // Color code by distance
-                const distanceElement = document.getElementById('distance-display');
-                if (distance < 50) {
-                    distanceElement.style.color = '#4CAF50'; // Green
-                } else if (distance < 200) {
-                    distanceElement.style.color = '#FFC107'; // Yellow
+                if (cameraPerm.state === 'granted' && locationPerm.state === 'granted') {
+                    startARExperience();
                 } else {
-                    distanceElement.style.color = '#F44336'; // Red
+                    permissionStatus.innerHTML = "Permissions not yet granted";
                 }
+            } catch (e) {
+                // Fallback for browsers that don't support permissions API
+                permissionStatus.innerHTML = "Please grant permissions when prompted";
             }
-        }, 500);
+        }
 
-        // Distance calculation (Haversine formula)
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; // Earth radius in meters
-            const φ1 = lat1 * Math.PI / 180;
-            const φ2 = lat2 * Math.PI / 180;
-            const Δφ = (lat2 - lat1) * Math.PI / 180;
-            const Δλ = (lon2 - lon1) * Math.PI / 180;
+        // Permission request function
+        async function requestPermissions() {
+            try {
+                // Request camera access
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: {
+                        facingMode: { ideal: 'environment' } // Prefer rear camera
+                    } 
+                });
+                
+                // Stop the stream immediately (we just needed permission)
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Request location access
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 5000
+                    });
+                });
+                
+                startARExperience();
+            } catch (error) {
+                permissionStatus.innerHTML = `Error: ${error.message}`;
+                if (error.name === 'NotAllowedError') {
+                    permissionStatus.innerHTML += "<br>Please enable permissions in your browser settings";
+                }
+                console.error("Permission error:", error);
+            }
+        }
 
-            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                      Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        // Start AR once permissions are granted
+        function startARExperience() {
+            permissionOverlay.style.display = 'none';
+            arScene.style.display = 'block';
+            arStatus.style.display = 'block';
+            
+            // Add event listeners for AR scene
+            arScene.addEventListener('arjs-video-loaded', () => {
+                arStatus.innerHTML = "AR camera ready!";
+            });
+            
+            arScene.addEventListener('arjs-gps-camera-update-position', (e) => {
+                const pos = e.detail.position;
+                arStatus.innerHTML = `
+                    GPS Position: ${pos.latitude.toFixed(6)}, ${pos.longitude.toFixed(6)}<br>
+                    Accuracy: ±${pos.accuracy.toFixed(1)} meters
+                `;
+            });
+        }
 
-            return R * c;
+        // Fallback for browsers without permissions API
+        if (!navigator.permissions) {
+            permissionStatus.innerHTML = "This browser doesn't support permission checks.<br>Please grant permissions when prompted.";
         }
     </script>
 </body>
