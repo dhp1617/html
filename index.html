@@ -1,58 +1,84 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/jeromeetienne/AR.js@1.7.2/aframe/build/aframe-ar.min.js"></script>
-    
-<script>
-    navigator.mediaDevices.getUserMedia({ video: true })
-    .then((stream) => { console.log("Camera access granted"); })
-    .catch((err) => { console.error("Camera access denied:", err); });
-</script>
-    <script>
-        function updateVisibility() {
-            navigator.geolocation.getCurrentPosition(position => {
-                let userLat = position.coords.latitude;
-                let userLon = position.coords.longitude;
-                let userAlt = position.coords.altitude; // Get altitude
-                let targetLat = 10.939258; // Example GPS latitude (change to your location)
-                let targetLon = 76.743131;  
-                let minAlt = 4; // Min height for 2nd floor (~4m)
-                let maxAlt = 6; // Max height for 2nd floor (~6m)
-
-                let distance = getDistance(userLat, userLon, targetLat, targetLon);
-                let textEntity = document.getElementById('floating-text');
-
-                // Show only if within 10m of target and altitude is 2nd-floor range
-                textEntity.setAttribute('visible', distance < 10 && userAlt >= minAlt && userAlt <= maxAlt);
-            }, error => {
-                console.error("Error getting location:", error);
-            }, { enableHighAccuracy: true });
-        }
-
-        function getDistance(lat1, lon1, lat2, lon2) {
-            let R = 6371e3; // Earth radius in meters
-            let φ1 = lat1 * Math.PI / 180;
-            let φ2 = lat2 * Math.PI / 180;
-            let Δφ = (lat2 - lat1) * Math.PI / 180;
-            let Δλ = (lon2 - lon1) * Math.PI / 180;
-            let a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c;
-        }
-
-        setInterval(updateVisibility, 3000); // Update visibility every 3 seconds
-    </script>
+  <meta charset="utf-8">
+  <title>AR Tour Guide - Large Box</title>
+  <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+  </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
-    <a-scene embedded arjs>
-        <a-entity camera></a-entity>
+<body>
+  <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+    <!-- Camera setup -->
+    <a-entity camera></a-entity>
 
-        <!-- Floating 3D Text (Appears Only at 2nd Floor) -->
-        <a-text id="floating-text" value="Welcome to AR!" position="0 8 0" rotation="0 180 0" scale="30 30 30" color="red"></a-text>
-        
-        <!-- Occlusion Object (Invisible Box Representing a Building) -->
-        <a-box position="0 1 -3" depth="1" height="2" width="3" material="opacity: 0.0;"></a-box>
-    </a-scene>
+    <!-- BIG BOX at 10.939230, 76.743130 (10m high, visible within 100m) -->
+    <a-entity
+      gps-entity-place="latitude: 10.939230; longitude: 76.743130"
+    >
+      <!-- Large red box (20x20x20m) floating 10m above ground -->
+      <a-box 
+        color="red" 
+        scale="20 20 20" 
+        position="0 10 0"
+        material="transparent: false; opacity: 0.8"
+      ></a-box>
+      
+      <!-- Label above the box -->
+      <a-text 
+        value="Landmark Here!" 
+        color="black" 
+        position="0 25 0" 
+        scale="10 10 10"
+      ></a-text>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    // Get user's location & log distance to the box
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLat = position.coords.latitude;
+          const userLng = position.coords.longitude;
+          const boxLat = 10.939230;
+          const boxLng = 76.743130;
+          
+          // Calculate distance (in meters) between user and box
+          const distance = calculateDistance(userLat, userLng, boxLat, boxLng);
+          console.log(`You are ${distance.toFixed(1)} meters from the box.`);
+          
+          // Show alert if within 100m
+          if (distance <= 100) {
+            alert(`You're within 100m of the AR box! (${distance.toFixed(1)}m)`);
+          }
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+        }
+      );
+    } else {
+      alert("Geolocation not supported.");
+    }
+
+    // Helper: Calculate distance between two GPS points (Haversine formula)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371000; // Earth radius in meters
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return R * c;
+    }
+  </script>
 </body>
 </html>
