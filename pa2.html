@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Large Red Box AR Marker</title>
+    <title>Multiple AR Markers</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
@@ -48,6 +48,16 @@
             border-radius: 5px;
             cursor: pointer;
         }
+        .distance-marker {
+            position: absolute;
+            background: rgba(255,0,0,0.5);
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 9999;
+        }
     </style>
 </head>
 <body>
@@ -72,56 +82,71 @@
     >
         <a-camera gps-camera rotation-reader></a-camera>
         
-        <!-- GIANT RED BOX at your coordinates -->
-        <a-entity
-            gps-entity-place="latitude: 10.939230; longitude: 76.743130"
-            scale="1 1 1"
-        >
-            <!-- Main red box (50m x 50m x 50m) -->
-            <a-box 
-                color="red" 
-                scale="50 50 50" 
-                position="0 25 0"
-                material="transparent: false; opacity: 0.9;"
-                shadow="cast: true; receive: false"
-            ></a-box>
-            
-            <!-- Pulsing animation for visibility -->
-            <a-animation 
-                attribute="scale"
-                dur="2000"
-                from="45 45 45"
-                to="50 50 50"
-                repeat="indefinite"
-                direction="alternate"
-            ></a-animation>
-            
-            <!-- Floating label -->
-            <a-text 
-                value="TARGET LOCATION" 
-                color="white" 
-                position="0 60 0" 
-                scale="25 25 25"
-                align="center"
-                shadow="color: black; opacity: 0.8"
-            ></a-text>
+        <!-- ===== ALL LOCATION MARKERS ===== -->
+        <!-- Original Location -->
+        <a-entity gps-entity-place="latitude: 10.939230; longitude: 76.743130">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 1" position="0 60 0" scale="25 25 25"></a-text>
         </a-entity>
+
+        <!-- New Locations -->
+        <a-entity gps-entity-place="latitude: 10.938572; longitude: 76.743037">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 2" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.938601; longitude: 76.743306">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 3" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.938319; longitude: 76.744216">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 4" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.937588; longitude: 76.744049">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 5" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.937849; longitude: 76.744127">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 6" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.939929; longitude: 76.742443">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 7" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 10.938619; longitude: 76.743767">
+            <a-box color="red" scale="50 50 50" position="0 25 0"></a-box>
+            <a-text value="Location 8" position="0 60 0" scale="25 25 25"></a-text>
+        </a-entity>
+
     </a-scene>
 
     <!-- Status Panel -->
     <div id="ar-status" style="display: none;">
         <h3 style="margin-top: 0;">AR Navigation Active</h3>
-        <div>Target: 10.939230, 76.743130</div>
+        <div>Visible markers: <span id="visible-count">0</span>/8</div>
         <div>Your position: <span id="user-position">Acquiring...</span></div>
-        <div>Distance: <span id="distance">--</span> meters</div>
+        <div>Nearest marker: <span id="nearest-distance">--</span> meters</div>
     </div>
 
     <script>
-        // Configuration
-        const TARGET_LOCATION = {
-            lat: 10.939230,
-            lon: 76.743130
-        };
+        // All target locations
+        const TARGET_LOCATIONS = [
+            { lat: 10.939230, lon: 76.743130, name: "Location 1" },
+            { lat: 10.938572, lon: 76.743037, name: "Location 2" },
+            { lat: 10.938601, lon: 76.743306, name: "Location 3" },
+            { lat: 10.938319, lon: 76.744216, name: "Location 4" },
+            { lat: 10.937588, lon: 76.744049, name: "Location 5" },
+            { lat: 10.937849, lon: 76.744127, name: "Location 6" },
+            { lat: 10.939929, lon: 76.742443, name: "Location 7" },
+            { lat: 10.938619, lon: 76.743767, name: "Location 8" }
+        ];
 
         // DOM Elements
         const overlay = document.getElementById('permission-overlay');
@@ -186,20 +211,36 @@
 
         // Update position display
         function updatePosition(position) {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
+            const userLat = position.coords.latitude;
+            const userLon = position.coords.longitude;
             const accuracy = position.coords.accuracy;
             
             document.getElementById('user-position').textContent = 
-                `${lat.toFixed(6)}, ${lon.toFixed(6)} (±${accuracy.toFixed(1)}m)`;
+                `${userLat.toFixed(6)}, ${userLon.toFixed(6)} (±${accuracy.toFixed(1)}m)`;
             
-            // Calculate distance to target
-            const distance = calculateDistance(
-                lat, lon,
-                TARGET_LOCATION.lat, TARGET_LOCATION.lon
-            );
+            // Calculate distances to all targets
+            let nearestDistance = Infinity;
+            let visibleCount = 0;
             
-            document.getElementById('distance').textContent = Math.round(distance);
+            TARGET_LOCATIONS.forEach((loc, index) => {
+                const distance = calculateDistance(
+                    userLat, userLon,
+                    loc.lat, loc.lon
+                );
+                
+                // Update nearest marker
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                }
+                
+                // Count visible markers (within 300m)
+                if (distance < 300) {
+                    visibleCount++;
+                }
+            });
+            
+            document.getElementById('nearest-distance').textContent = Math.round(nearestDistance);
+            document.getElementById('visible-count').textContent = visibleCount;
         }
 
         // Handle position errors
