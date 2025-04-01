@@ -2,13 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>AR Tour Guide - Visible Box</title>
+  <title>Giant AR Object Visible From Far</title>
   <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; }
-    #debug-info {
+    #status {
       position: absolute;
       top: 10px;
       left: 10px;
@@ -21,87 +21,105 @@
   </style>
 </head>
 <body>
-  <div id="debug-info">Loading AR...</div>
+  <div id="status">Initializing AR experience...</div>
   
   <a-scene 
     vr-mode-ui="enabled: false" 
     embedded 
-    arjs="sourceType: webcam; debugUIEnabled: true;"
+    arjs="sourceType: webcam; debugUIEnabled: false;"
     renderer="logarithmicDepthBuffer: true;"
   >
     <!-- Camera setup -->
     <a-entity camera></a-entity>
 
-    <!-- BIG BOX at your coordinates -->
+    <!-- GIANT VISIBLE OBJECT -->
     <a-entity
-      id="target-box"
+      id="giant-object"
       gps-entity-place="latitude: 10.939230; longitude: 76.743130"
-      scale="1 1 1"
     >
-      <a-box 
-        color="red" 
-        scale="20 20 20" 
-        position="0 10 0"
-        material="transparent: false; opacity: 0.8"
-      ></a-box>
+      <!-- Massive pyramid (500m base, 300m height) -->
+      <a-cone 
+        color="#FF0000" 
+        radius-bottom="250" 
+        radius-top="10" 
+        height="300"
+        position="0 150 0"
+        material="transparent: true; opacity: 0.7;"
+      ></a-cone>
+      
+      <!-- Glowing sphere at top -->
+      <a-sphere
+        color="yellow"
+        radius="50"
+        position="0 300 0"
+        material="shader: flat;"
+        light="type: point; intensity: 1; color: yellow"
+      ></a-sphere>
+      
+      <!-- Floating label -->
       <a-text 
-        value="Look Here!" 
-        color="red" 
-        position="0 25 0" 
-        scale="10 10 10"
+        value="TOUR POINT" 
+        color="#FFFFFF" 
+        position="0 400 0" 
+        scale="150 150 150"
+        align="center"
       ></a-text>
     </a-entity>
   </a-scene>
 
   <script>
-    const debugInfo = document.getElementById('debug-info');
-    const targetBox = document.getElementById('target-box');
+    const statusElement = document.getElementById('status');
+    const giantObject = document.getElementById('giant-object');
     let userPosition = null;
 
-    // Debugging: Check if AR.js loaded properly
+    // Check if required libraries loaded
     if (!window.ARjs || !window.AFRAME) {
-      debugInfo.innerHTML = "Error: AR.js or A-Frame not loaded!";
+      statusElement.innerHTML = "Error: AR libraries failed to load. Refresh page.";
     }
 
-    // Get user's location
+    // Configure AR scene events
+    const scene = document.querySelector('a-scene');
+    scene.addEventListener('arjs-ftor-ready', () => {
+      statusElement.innerHTML += "<br>AR camera ready!";
+    });
+
+    // Continuous GPS tracking
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(
         (position) => {
           userPosition = position;
           const userLat = position.coords.latitude;
           const userLng = position.coords.longitude;
-          const boxLat = 10.939230;
-          const boxLng = 76.743130;
+          const targetLat = 10.939230;
+          const targetLng = 76.743130;
           
-          const distance = calculateDistance(userLat, userLng, boxLat, boxLng);
-          debugInfo.innerHTML = `
+          const distance = calculateDistance(userLat, userLng, targetLat, targetLng);
+          statusElement.innerHTML = `
+            <strong>Giant AR Object</strong><br>
             Your position: ${userLat.toFixed(6)}, ${userLng.toFixed(6)}<br>
-            Distance to box: ${distance.toFixed(1)}m<br>
-            Accuracy: ±${position.coords.accuracy.toFixed(1)}m<br>
-            Camera: ${document.querySelector('a-scene').systems.arjs.isSourceReady ? 'Ready' : 'Loading...'}
+            Distance to target: ${(distance/1000).toFixed(2)} km<br>
+            GPS accuracy: ±${position.coords.accuracy.toFixed(1)} meters<br>
+            <small>Look around - object should be visible from several kilometers away</small>
           `;
-
-          // Make box more visible when close
-          if (distance < 100) {
-            targetBox.setAttribute('visible', 'true');
-            targetBox.setAttribute('scale', '1 1 1');
-          } else {
-            targetBox.setAttribute('scale', '0.1 0.1 0.1'); // Shrink when far
-          }
+          
+          // Scale object based on distance (makes it even more visible)
+          const scaleFactor = Math.min(1, 10000/distance);
+          giantObject.setAttribute('scale', `${scaleFactor} ${scaleFactor} ${scaleFactor}`);
         },
         (error) => {
-          debugInfo.innerHTML = `Geolocation error: ${error.message}`;
+          statusElement.innerHTML = `GPS Error: ${error.message}`;
         },
         {
           enableHighAccuracy: true,
-          maximumAge: 30000,
-          timeout: 27000
+          maximumAge: 5000,
+          timeout: 10000
         }
       );
     } else {
-      debugInfo.innerHTML = "Geolocation not supported by your browser";
+      statusElement.innerHTML = "Error: Geolocation not supported by your device";
     }
 
+    // Distance calculation (Haversine formula)
     function calculateDistance(lat1, lon1, lat2, lon2) {
       const R = 6371000; // Earth radius in meters
       const φ1 = lat1 * Math.PI / 180;
