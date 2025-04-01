@@ -15,8 +15,8 @@
                 let userLat = position.coords.latitude;
                 let userLon = position.coords.longitude;
                 let userAlt = position.coords.altitude; // Get altitude
-                let targetLat = 10.9392894; // Example GPS latitude (change to your location)
-                let targetLon = 76.7430817;  
+                let targetLat = 10.939258; // Example GPS latitude (change to your location)
+                let targetLon = 76.743131;  
                 let minAlt = 4; // Min height for 2nd floor (~4m)
                 let maxAlt = 6; // Max height for 2nd floor (~6m)
 
@@ -49,7 +49,7 @@
         <a-entity camera></a-entity>
 
         <!-- Floating 3D Text (Appears Only at 2nd Floor) -->
-        <a-text id="floating-text" value="Welcome to AR!" position="0 2 -5" rotation="0 180 0" scale="3 3 3" color="red"></a-text>
+        <a-text id="floating-text" value="Welcome to AR!" position="0 8 0" rotation="0 180 0" scale="30 30 30" color="red"></a-text>
         
         <!-- Occlusion Object (Invisible Box Representing a Building) -->
         <a-box position="0 1 -3" depth="1" height="2" width="3" material="opacity: 0.0;"></a-box>
