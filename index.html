@@ -2,17 +2,16 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Stable AR Markers with Distance Scaling</title>
+    <title>Stable AR.js Implementation</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <!-- Enhanced GPS component -->
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
+    <!-- Sensor fusion library -->
+    <script src="https://cdn.jsdelivr.net/npm/geolocation-utils@1.4.0/dist/geolocation-utils.min.js"></script>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: Arial;
-        }
-        #ar-status {
+        body { margin: 0; overflow: hidden; }
+        #status {
             position: fixed;
             bottom: 10px;
             left: 10px;
@@ -21,271 +20,88 @@
             padding: 15px;
             border-radius: 5px;
             z-index: 10000;
-            max-width: 300px;
-        }
-        #permission-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.9);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 10001;
-            text-align: center;
-        }
-        #permission-overlay button {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            font-size: 18px;
-            margin: 10px;
-            border-radius: 5px;
-            cursor: pointer;
         }
     </style>
 </head>
 <body>
-    <!-- Permission Overlay -->
-    <div id="permission-overlay">
-        <h2>AR Experience Requires Permissions</h2>
-        <p>Please enable:</p>
-        <ul style="text-align: left; display: inline-block;">
-            <li>Camera access</li>
-            <li>Location services</li>
-        </ul>
-        <button id="enable-ar">Enable AR</button>
-        <div id="permission-status"></div>
-    </div>
-
-    <!-- AR Scene -->
+    <div id="status">Initializing...</div>
+    
     <a-scene 
         vr-mode-ui="enabled: false"
         embedded
         arjs="sourceType: webcam; debugUIEnabled: false;"
-        renderer="logarithmicDepthBuffer: true;"
-        style="display: none;"
+        renderer="logarithmicDepthBuffer: true; precision: high"
     >
-        <a-camera gps-camera rotation-reader></a-camera>
-        <a-entity id="marker-container"></a-entity>
+        <a-camera gps-camera rotation-reader 
+                 position-min-distance="5"
+                 position-max-distance="1000"></a-camera>
+        
+        <!-- Stable AR Content -->
+        <a-entity gps-entity-place="latitude: 10.939230; longitude: 76.743130">
+            <a-box color="red" 
+                  scale="15 15 15"
+                  position="0 7.5 0"
+                  material="shader: flat; transparent: true; opacity: 0.8"
+                  animation="property: scale; to: 18 18 18; dir: alternate; dur: 2000; loop: true">
+            </a-box>
+            <a-text value="LANDMARK" 
+                   position="0 15 0"
+                   scale="7.5 7.5 7.5"
+                   align="center"></a-text>
+        </a-entity>
     </a-scene>
 
-    <!-- Status Panel -->
-    <div id="ar-status" style="display: none;">
-        <h3 style="margin-top: 0;">AR Navigation Active</h3>
-        <div>Visible markers: <span id="visible-count">0</span>/8</div>
-        <div>Your position: <span id="user-position">Acquiring...</span></div>
-        <div>Nearest marker: <span id="nearest-distance">--</span> meters</div>
-        <div>Current scale factor: <span id="scale-factor">1.0</span>x</div>
-    </div>
-
     <script>
-        // Configuration
-        const TARGET_LOCATIONS = [
-            { lat: 10.939230, lon: 76.743130, name: "Location 1" },
-            { lat: 10.938572, lon: 76.743037, name: "Location 2" },
-            { lat: 10.938601, lon: 76.743306, name: "Location 3" },
-            { lat: 10.938319, lon: 76.744216, name: "Location 4" },
-            { lat: 10.937588, lon: 76.744049, name: "Location 5" },
-            { lat: 10.937849, lon: 76.744127, name: "Location 6" },
-            { lat: 10.939929, lon: 76.742443, name: "Location 7" },
-            { lat: 10.938619, lon: 76.743767, name: "Location 8" }
-        ];
-
-        // Constants
-        const VISIBILITY_RANGE = 100; // meters
-        const BASE_SCALE = 10; // Base size of markers
-        const MIN_SCALE = 5; // Minimum scale at max distance
-        const MAX_SCALE = 15; // Maximum scale when closest
-
-        // DOM Elements
-        const overlay = document.getElementById('permission-overlay');
-        const enableBtn = document.getElementById('enable-ar');
-        const statusDiv = document.getElementById('permission-status');
-        const arScene = document.querySelector('a-scene');
-        const arStatus = document.getElementById('ar-status');
-        const markerContainer = document.getElementById('marker-container');
-        let watchId = null;
-        let currentPosition = null;
-
-        // Create all markers
-        function createMarkers() {
-            TARGET_LOCATIONS.forEach((location, index) => {
-                const marker = document.createElement('a-entity');
-                marker.setAttribute('gps-entity-place', {
-                    latitude: location.lat,
-                    longitude: location.lon
-                });
-                marker.setAttribute('visible', 'false');
-                marker.setAttribute('id', `marker-${index}`);
+        // 1. Add sensor fusion for better stability
+        AFRAME.registerComponent('stabilizer', {
+            init: function() {
+                this.smoothPosition = { x: 0, y: 0, z: 0 };
+                this.lastPosition = { x: 0, y: 0, z: 0 };
+                this.smoothingFactor = 0.2; // Adjust for stability
+            },
+            tick: function() {
+                const currentPos = this.el.getAttribute('position');
+                this.smoothPosition.x = this.lastPosition.x + 
+                    (currentPos.x - this.lastPosition.x) * this.smoothingFactor;
+                this.smoothPosition.y = currentPos.y; // Don't smooth vertical
+                this.smoothPosition.z = this.lastPosition.z + 
+                    (currentPos.z - this.lastPosition.z) * this.smoothingFactor;
                 
-                // Add the red box with pulsing animation
-                const box = document.createElement('a-box');
-                box.setAttribute('color', 'red');
-                box.setAttribute('scale', `${BASE_SCALE} ${BASE_SCALE} ${BASE_SCALE}`);
-                box.setAttribute('position', '0 5 0');
-                box.setAttribute('material', 'shader: flat; transparent: true; opacity: 0.9');
-                
-                // Smooth pulsing animation
-                box.setAttribute('animation__scale', {
-                    property: 'scale',
-                    dur: 2000,
-                    from: `${BASE_SCALE*0.9} ${BASE_SCALE*0.9} ${BASE_SCALE*0.9}`,
-                    to: `${BASE_SCALE} ${BASE_SCALE} ${BASE_SCALE}`,
-                    easing: 'easeInOutSine',
-                    loop: true,
-                    dir: 'alternate'
-                });
-                
-                marker.appendChild(box);
-                
-                // Add the label
-                const text = document.createElement('a-text');
-                text.setAttribute('value', location.name);
-                text.setAttribute('position', '0 10 0');
-                text.setAttribute('scale', '5 5 5');
-                text.setAttribute('align', 'center');
-                text.setAttribute('color', 'white');
-                text.setAttribute('material', 'shader: msdf; transparent: true; opacity: 0.9');
-                marker.appendChild(text);
-                
-                markerContainer.appendChild(marker);
-            });
-        }
-
-        // Calculate appropriate scale based on distance
-        function calculateScale(distance) {
-            // Linear scaling from MAX_SCALE at 0m to MIN_SCALE at VISIBILITY_RANGE
-            const scale = MAX_SCALE - ((MAX_SCALE - MIN_SCALE) * (distance / VISIBILITY_RANGE));
-            return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
-        }
-
-        // Check permissions
-        async function enableAR() {
-            statusDiv.innerHTML = "Checking permissions...";
-            
-            try {
-                // 1. Request camera access
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: {
-                        facingMode: { ideal: 'environment' },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-                stream.getTracks().forEach(track => track.stop());
-                
-                // 2. Request location access
-                currentPosition = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 10000
-                    });
-                });
-                
-                startARExperience();
-            } catch (error) {
-                statusDiv.innerHTML = `Error: ${error.message}<br>Please refresh and try again.`;
-                console.error("Permission error:", error);
+                this.el.setAttribute('position', this.smoothPosition);
+                this.lastPosition = {...this.smoothPosition};
             }
-        }
+        });
 
-        // Start AR experience
-        function startARExperience() {
-            overlay.style.display = 'none';
-            arScene.style.display = 'block';
-            arStatus.style.display = 'block';
-            
-            // Create all markers
-            createMarkers();
-            
-            // Start watching position
-            watchId = navigator.geolocation.watchPosition(
-                updatePosition,
-                handlePositionError,
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 3000,
-                    timeout: 5000
-                }
-            );
-            
-            // When AR is ready
-            arScene.addEventListener('arjs-video-loaded', () => {
-                arStatus.innerHTML += "<br>AR camera activated!";
+        // 2. Configure for stability
+        document.querySelector('a-scene').addEventListener('loaded', () => {
+            // Add stabilizer to all GPS entities
+            document.querySelectorAll('[gps-entity-place]').forEach(el => {
+                el.setAttribute('stabilizer', '');
             });
-        }
-
-        // Update position display and marker visibility
-        function updatePosition(position) {
-            currentPosition = position;
-            const userLat = position.coords.latitude;
-            const userLon = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
             
-            document.getElementById('user-position').textContent = 
-                `${userLat.toFixed(6)}, ${userLon.toFixed(6)} (±${accuracy.toFixed(1)}m)`;
-            
-            // Calculate distances to all targets
-            let nearestDistance = Infinity;
-            let visibleCount = 0;
-            
-            TARGET_LOCATIONS.forEach((loc, index) => {
-                const distance = calculateDistance(
-                    userLat, userLon,
-                    loc.lat, loc.lon
-                );
-                
-                // Update nearest marker
-                if (distance < nearestDistance) {
-                    nearestDistance = distance;
-                }
-                
-                // Control visibility and scale
-                const marker = document.getElementById(`marker-${index}`);
-                if (marker) {
-                    if (distance < VISIBILITY_RANGE) {
-                        marker.setAttribute('visible', 'true');
-                        visibleCount++;
+            // Better GPS handling
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    pos => {
+                        const accuracy = pos.coords.accuracy;
+                        document.getElementById('status').innerHTML = 
+                            `GPS Active | Accuracy: ${accuracy.toFixed(1)}m`;
                         
-                        // Calculate appropriate scale
-                        const scale = calculateScale(distance);
-                        const box = marker.querySelector('a-box');
-                        const text = marker.querySelector('a-text');
-                        
-                        // Apply scaling (smoothly with animation)
-                        box.setAttribute('scale', {
-                            x: scale,
-                            y: scale,
-                            z: scale
+                        // Adjust smoothing based on accuracy
+                        const smoothing = Math.min(0.3, 0.1 + (accuracy/100 * 0.1));
+                        document.querySelectorAll('[stabilizer]').forEach(el => {
+                            el.components.stabilizer.smoothingFactor = smoothing;
                         });
-                        
-                        // Scale text proportionally
-                        const textScale = scale * 0.5;
-                        text.setAttribute('scale', {
-                            x: textScale,
-                            y: textScale,
-                            z: textScale
-                        });
-                        
-                        // Update position to keep it above the box
-                        text.setAttribute('position', `0 ${scale * 1.2} 0`);
-                        
-                    } else {
-                        marker.setAttribute('visible', 'false');
+                    },
+                    err => console.error(err),
+                    { 
+                        enableHighAccuracy: true,
+                        maximumAge: 2000,
+                        timeout: 5000
                     }
-                }
-            });
-            
-            document.getElementById('nearest-distance').textContent = Math.round(nearestDistance);
-            document.getElementById('visible-count').textContent = visibleCount;
-            
-            // Show current scale factor for nearest marker
-            if (nearestDistance < VISIBILITY_RANGE) {
-                const currentScale = calculateScale(nearestDistance).toFixed(1);
-                document.getElementById('scale-factor').textContent = currentScale;
+                );
+            }
+        });
+    </script>
+</body>
+</html>
