@@ -2,28 +2,18 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Multiple AR Markers (100m Visibility)</title>
+    <title>Stable AR Tour Guide</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geolocation-utils@1.4.0/dist/geolocation-utils.min.js"></script>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             font-family: Arial;
         }
-        #ar-status {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            z-index: 10000;
-            max-width: 300px;
-        }
-        #permission-overlay {
+        #ar-overlay {
             position: fixed;
             top: 0;
             left: 0;
@@ -35,10 +25,21 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 10001;
+            z-index: 10000;
             text-align: center;
         }
-        #permission-overlay button {
+        #ar-status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            z-index: 10001;
+            max-width: 300px;
+        }
+        button {
             background: #4CAF50;
             color: white;
             border: none;
@@ -52,15 +53,19 @@
 </head>
 <body>
     <!-- Permission Overlay -->
-    <div id="permission-overlay">
-        <h2>AR Experience Requires Permissions</h2>
-        <p>Please enable:</p>
-        <ul style="text-align: left; display: inline-block;">
-            <li>Camera access</li>
-            <li>Location services</li>
-        </ul>
-        <button id="enable-ar">Enable AR</button>
+    <div id="ar-overlay">
+        <h2>AR Tour Guide</h2>
+        <p>This experience needs camera and location access</p>
+        <button id="start-ar">Start AR Experience</button>
         <div id="permission-status"></div>
+    </div>
+
+    <!-- Status Panel -->
+    <div id="ar-status" style="display: none;">
+        <h3 style="margin-top: 0;">AR Navigation</h3>
+        <div>GPS Accuracy: <span id="gps-accuracy">--</span>m</div>
+        <div>Visible Points: <span id="visible-count">0</span>/8</div>
+        <div>Nearest: <span id="nearest-point">--</span>m away</div>
     </div>
 
     <!-- AR Scene -->
@@ -68,46 +73,95 @@
         vr-mode-ui="enabled: false"
         embedded
         arjs="sourceType: webcam; debugUIEnabled: false;"
+        renderer="logarithmicDepthBuffer: true; precision: high"
         style="display: none;"
     >
         <a-camera gps-camera rotation-reader></a-camera>
-        
-        <!-- ===== ALL LOCATION MARKERS ===== -->
-        <!-- These will be controlled by JavaScript -->
-        <a-entity id="marker-container"></a-entity>
+        <a-entity id="ar-markers"></a-entity>
     </a-scene>
 
-    <!-- Status Panel -->
-    <div id="ar-status" style="display: none;">
-        <h3 style="margin-top: 0;">AR Navigation Active</h3>
-        <div>Visible markers: <span id="visible-count">0</span>/8</div>
-        <div>Your position: <span id="user-position">Acquiring...</span></div>
-        <div>Nearest marker: <span id="nearest-distance">--</span> meters</div>
-    </div>
-
     <script>
-        // All target locations
+        // ===== CONFIGURATION =====
         const TARGET_LOCATIONS = [
-            { lat: 10.939230, lon: 76.743130, name: "Location 1" },
-            { lat: 10.938572, lon: 76.743037, name: "Location 2" },
-            { lat: 10.938601, lon: 76.743306, name: "Location 3" },
-            { lat: 10.938319, lon: 76.744216, name: "Location 4" },
-            { lat: 10.937588, lon: 76.744049, name: "Location 5" },
-            { lat: 10.937849, lon: 76.744127, name: "Location 6" },
-            { lat: 10.939929, lon: 76.742443, name: "Location 7" },
-            { lat: 10.938619, lon: 76.743767, name: "Location 8" }
+            { lat: 10.939230, lon: 76.743130, name: "Point 1" },
+            { lat: 10.938572, lon: 76.743037, name: "Point 2" },
+            { lat: 10.938601, lon: 76.743306, name: "Point 3" },
+            { lat: 10.938319, lon: 76.744216, name: "Point 4" },
+            { lat: 10.937588, lon: 76.744049, name: "Point 5" },
+            { lat: 10.937849, lon: 76.744127, name: "Point 6" },
+            { lat: 10.939929, lon: 76.742443, name: "Point 7" },
+            { lat: 10.938619, lon: 76.743767, name: "Point 8" }
         ];
+        
+        const VISIBILITY_RANGE = 100; // meters
+        const BASE_SCALE = 10; // Base size at 50m distance
+        const MIN_SCALE = 5;   // Minimum size at 100m
+        const MAX_SCALE = 15;  // Maximum size at 0m
 
-        // DOM Elements
-        const overlay = document.getElementById('permission-overlay');
-        const enableBtn = document.getElementById('enable-ar');
-        const statusDiv = document.getElementById('permission-status');
-        const arScene = document.querySelector('a-scene');
-        const arStatus = document.getElementById('ar-status');
-        const markerContainer = document.getElementById('marker-container');
+        // ===== STABILIZATION COMPONENTS =====
+        AFRAME.registerComponent('position-stabilizer', {
+            schema: {
+                smoothing: { type: 'number', default: 0.3 }
+            },
+            init: function() {
+                this.smoothedPosition = { x: 0, y: 0, z: 0 };
+                this.lastPosition = { x: 0, y: 0, z: 0 };
+            },
+            tick: function() {
+                const currentPos = this.el.getAttribute('position');
+                const smooth = this.data.smoothing;
+                
+                this.smoothedPosition.x = this.lastPosition.x * (1-smooth) + currentPos.x * smooth;
+                this.smoothedPosition.y = currentPos.y; // Don't smooth vertical axis
+                this.smoothedPosition.z = this.lastPosition.z * (1-smooth) + currentPos.z * smooth;
+                
+                this.el.setAttribute('position', this.smoothedPosition);
+                this.lastPosition = {...this.smoothedPosition};
+            }
+        });
+
+        AFRAME.registerComponent('distance-scaling', {
+            schema: {
+                maxDistance: { type: 'number', default: 100 },
+                minScale: { type: 'number', default: 5 },
+                maxScale: { type: 'number', default: 15 }
+            },
+            init: function() {
+                this.currentDistance = 0;
+                this.el.addEventListener('gps-entity-place-update', (e) => {
+                    this.currentDistance = e.detail.distance;
+                    this.updateScale();
+                });
+            },
+            updateScale: function() {
+                const distance = Math.min(this.data.maxDistance, this.currentDistance);
+                const scaleRange = this.data.maxScale - this.data.minScale;
+                const scale = this.data.maxScale - (scaleRange * (distance / this.data.maxDistance));
+                
+                this.el.setAttribute('scale', {
+                    x: scale,
+                    y: scale,
+                    z: scale
+                });
+                
+                // Adjust text position
+                const text = this.el.querySelector('a-text');
+                if (text) {
+                    text.setAttribute('position', `0 ${scale * 1.2} 0`);
+                    text.setAttribute('scale', `${scale * 0.5} ${scale * 0.5} ${scale * 0.5}`);
+                }
+            }
+        });
+
+        // ===== MAIN APPLICATION =====
+        const overlay = document.getElementById('ar-overlay');
+        const statusPanel = document.getElementById('ar-status');
+        const startBtn = document.getElementById('start-ar');
+        const permissionStatus = document.getElementById('permission-status');
+        const markerContainer = document.getElementById('ar-markers');
         let watchId = null;
 
-        // Create all markers
+        // Create AR markers
         function createMarkers() {
             TARGET_LOCATIONS.forEach((location, index) => {
                 const marker = document.createElement('a-entity');
@@ -117,152 +171,144 @@
                 });
                 marker.setAttribute('visible', 'false');
                 marker.setAttribute('id', `marker-${index}`);
+                marker.setAttribute('position-stabilizer', 'smoothing: 0.2');
+                marker.setAttribute('distance-scaling', {
+                    maxDistance: VISIBILITY_RANGE,
+                    minScale: MIN_SCALE,
+                    maxScale: MAX_SCALE
+                });
                 
-                // Add the red box
+                // Create marker content
                 const box = document.createElement('a-box');
-                box.setAttribute('color', 'red');
-                box.setAttribute('scale', '10 10 10');
-                box.setAttribute('position', '0 5 0');
+                box.setAttribute('color', '#E53935');
+                box.setAttribute('material', 'shader: flat; transparent: true; opacity: 0.8');
+                box.setAttribute('animation', 'property: scale; to: 1.1 1.1 1.1; dir: alternate; dur: 2000; loop: true');
                 marker.appendChild(box);
                 
-                // Add the label
                 const text = document.createElement('a-text');
                 text.setAttribute('value', location.name);
-                text.setAttribute('position', '0 10 0');
-                text.setAttribute('scale', '5 5 5');
                 text.setAttribute('align', 'center');
                 text.setAttribute('color', 'white');
+                text.setAttribute('material', 'shader: msdf; transparent: true');
                 marker.appendChild(text);
                 
                 markerContainer.appendChild(marker);
             });
         }
 
-        // Check permissions
-        async function enableAR() {
-            statusDiv.innerHTML = "Checking permissions...";
+        // Start AR experience
+        async function startAR() {
+            permissionStatus.textContent = "Checking permissions...";
             
             try {
                 // 1. Request camera access
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: {
-                        facingMode: { ideal: 'environment' },
+                    video: { 
+                        facingMode: 'environment',
                         width: { ideal: 1280 },
                         height: { ideal: 720 }
-                    }
+                    } 
                 });
                 stream.getTracks().forEach(track => track.stop());
                 
                 // 2. Request location access
-                const position = await new Promise((resolve, reject) => {
+                await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
                         timeout: 10000
                     });
                 });
                 
-                startARExperience();
+                // 3. Initialize AR
+                overlay.style.display = 'none';
+                document.querySelector('a-scene').style.display = 'block';
+                statusPanel.style.display = 'block';
+                createMarkers();
+                
+                // 4. Start position tracking
+                watchId = navigator.geolocation.watchPosition(
+                    updatePosition,
+                    handlePositionError,
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 2000,
+                        timeout: 5000
+                    }
+                );
+                
             } catch (error) {
-                statusDiv.innerHTML = `Error: ${error.message}<br>Please refresh and try again.`;
-                console.error("Permission error:", error);
+                permissionStatus.innerHTML = `Error: ${error.message}<br>Please refresh and try again.`;
+                console.error("AR initialization failed:", error);
             }
         }
 
-        // Start AR experience
-        function startARExperience() {
-            overlay.style.display = 'none';
-            arScene.style.display = 'block';
-            arStatus.style.display = 'block';
+        // Update position info
+        function updatePosition(pos) {
+            const accuracy = pos.coords.accuracy;
+            document.getElementById('gps-accuracy').textContent = accuracy.toFixed(1);
             
-            // Create all markers
-            createMarkers();
-            
-            // Start watching position
-            watchId = navigator.geolocation.watchPosition(
-                updatePosition,
-                handlePositionError,
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 3000,
-                    timeout: 5000
-                }
-            );
-            
-            // When AR is ready
-            arScene.addEventListener('arjs-video-loaded', () => {
-                arStatus.innerHTML += "<br>AR camera activated!";
-            });
-        }
-
-        // Update position display and marker visibility
-        function updatePosition(position) {
-            const userLat = position.coords.latitude;
-            const userLon = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
-            
-            document.getElementById('user-position').textContent = 
-                `${userLat.toFixed(6)}, ${userLon.toFixed(6)} (±${accuracy.toFixed(1)}m)`;
-            
-            // Calculate distances to all targets
-            let nearestDistance = Infinity;
+            // Update all markers
             let visibleCount = 0;
+            let nearestDistance = Infinity;
             
             TARGET_LOCATIONS.forEach((loc, index) => {
                 const distance = calculateDistance(
-                    userLat, userLon,
+                    pos.coords.latitude, pos.coords.longitude,
                     loc.lat, loc.lon
                 );
                 
-                // Update nearest marker
-                if (distance < nearestDistance) {
-                    nearestDistance = distance;
-                }
-                
-                // Control visibility (within 100m)
                 const marker = document.getElementById(`marker-${index}`);
                 if (marker) {
-                    if (distance < 100) { // 100 meter visibility range
+                    if (distance < VISIBILITY_RANGE) {
                         marker.setAttribute('visible', 'true');
                         visibleCount++;
+                        
+                        // Update stabilizer based on accuracy
+                        const smoothing = Math.min(0.3, 0.1 + (accuracy/50 * 0.1));
+                        marker.setAttribute('position-stabilizer', 'smoothing', smoothing);
                     } else {
                         marker.setAttribute('visible', 'false');
                     }
                 }
+                
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                }
             });
             
-            document.getElementById('nearest-distance').textContent = Math.round(nearestDistance);
             document.getElementById('visible-count').textContent = visibleCount;
+            document.getElementById('nearest-point').textContent = Math.round(nearestDistance);
         }
 
-        // Handle position errors
+        // Handle errors
         function handlePositionError(error) {
-            console.error("GPS error:", error);
-            document.getElementById('user-position').textContent = "GPS Error";
+            console.error("GPS Error:", error);
+            document.getElementById('gps-accuracy').textContent = "Error";
         }
 
-        // Haversine distance calculation
+        // Distance calculation (Haversine formula)
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; // Earth radius in meters
-            const φ1 = lat1 * Math.PI / 180;
-            const φ2 = lat2 * Math.PI / 180;
-            const Δφ = (lat2 - lat1) * Math.PI / 180;
-            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            const R = 6371000;
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
 
-            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                       Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            
             return R * c;
         }
 
-        // Clean up on exit
+        // Clean up
         window.addEventListener('beforeunload', () => {
             if (watchId) navigator.geolocation.clearWatch(watchId);
         });
 
         // Initialize
-        enableBtn.addEventListener('click', enableAR);
+        startBtn.addEventListener('click', startAR);
     </script>
 </body>
 </html>
