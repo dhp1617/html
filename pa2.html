@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Multiple AR Markers</title>
+    <title>Multiple AR Markers (100m Visibility)</title>
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-gps-entity-place.min.js"></script>
@@ -48,16 +48,6 @@
             border-radius: 5px;
             cursor: pointer;
         }
-        .distance-marker {
-            position: absolute;
-            background: rgba(255,0,0,0.5);
-            color: white;
-            padding: 5px;
-            border-radius: 3px;
-            font-size: 12px;
-            pointer-events: none;
-            z-index: 9999;
-        }
     </style>
 </head>
 <body>
@@ -83,48 +73,8 @@
         <a-camera gps-camera rotation-reader></a-camera>
         
         <!-- ===== ALL LOCATION MARKERS ===== -->
-        <!-- Original Location -->
-        <a-entity gps-entity-place="latitude: 10.939230; longitude: 76.743130">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 1" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <!-- New Locations -->
-        <a-entity gps-entity-place="latitude: 10.938572; longitude: 76.743037">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 2" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.938601; longitude: 76.743306">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 3" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.938319; longitude: 76.744216">
-            <a-box color="red" scale="10 10 10 " position="0 25 0"></a-box>
-            <a-text value="Location 4" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.937588; longitude: 76.744049">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 5" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.937849; longitude: 76.744127">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 6" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.939929; longitude: 76.742443">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 7" position="0 60 0" scale="25 25 25"></a-text>
-        </a-entity>
-
-        <a-entity gps-entity-place="latitude: 10.938619; longitude: 76.743767">
-            <a-box color="red" scale="10 10 10" position="0 25 0"></a-box>
-            <a-text value="Location 8" position="0 20 0" scale="25 25 25"></a-text>
-        </a-entity>
-
+        <!-- These will be controlled by JavaScript -->
+        <a-entity id="marker-container"></a-entity>
     </a-scene>
 
     <!-- Status Panel -->
@@ -154,7 +104,39 @@
         const statusDiv = document.getElementById('permission-status');
         const arScene = document.querySelector('a-scene');
         const arStatus = document.getElementById('ar-status');
+        const markerContainer = document.getElementById('marker-container');
         let watchId = null;
+
+        // Create all markers
+        function createMarkers() {
+            TARGET_LOCATIONS.forEach((location, index) => {
+                const marker = document.createElement('a-entity');
+                marker.setAttribute('gps-entity-place', {
+                    latitude: location.lat,
+                    longitude: location.lon
+                });
+                marker.setAttribute('visible', 'false');
+                marker.setAttribute('id', `marker-${index}`);
+                
+                // Add the red box
+                const box = document.createElement('a-box');
+                box.setAttribute('color', 'red');
+                box.setAttribute('scale', '10 10 10');
+                box.setAttribute('position', '0 5 0');
+                marker.appendChild(box);
+                
+                // Add the label
+                const text = document.createElement('a-text');
+                text.setAttribute('value', location.name);
+                text.setAttribute('position', '0 10 0');
+                text.setAttribute('scale', '5 5 5');
+                text.setAttribute('align', 'center');
+                text.setAttribute('color', 'white');
+                marker.appendChild(text);
+                
+                markerContainer.appendChild(marker);
+            });
+        }
 
         // Check permissions
         async function enableAR() {
@@ -192,6 +174,9 @@
             arScene.style.display = 'block';
             arStatus.style.display = 'block';
             
+            // Create all markers
+            createMarkers();
+            
             // Start watching position
             watchId = navigator.geolocation.watchPosition(
                 updatePosition,
@@ -209,7 +194,7 @@
             });
         }
 
-        // Update position display
+        // Update position display and marker visibility
         function updatePosition(position) {
             const userLat = position.coords.latitude;
             const userLon = position.coords.longitude;
@@ -233,9 +218,15 @@
                     nearestDistance = distance;
                 }
                 
-                // Count visible markers (within 300m)
-                if (distance < 300) {
-                    visibleCount++;
+                // Control visibility (within 100m)
+                const marker = document.getElementById(`marker-${index}`);
+                if (marker) {
+                    if (distance < 100) { // 100 meter visibility range
+                        marker.setAttribute('visible', 'true');
+                        visibleCount++;
+                    } else {
+                        marker.setAttribute('visible', 'false');
+                    }
                 }
             });
             
